@@ -1,0 +1,18 @@
+[package]
+description = "Structural rewrites for Cargo.toml manifests"
+edition = { workspace = true }
+license = { workspace = true }
+name = "cargo-flow"
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[dependencies]
+clap       = { workspace = true }
+serde      = { workspace = true }
+serde_json = { workspace = true }
+toml_edit  = { workspace = true }
+ureq       = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
