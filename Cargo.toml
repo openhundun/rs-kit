@@ -1,21 +1,15 @@
 [workspace]
-members  = [
-    "source/cargo-flow",
-]
+members  = ["source/cargo-flow"]
 resolver = "3"
 
 [workspace.package]
-edition      = "2024"
-license      = "MIT"
-repository   = "https://github.com/openhundun/rs-kit"
-rust-version = "1.85"
-version      = "0.1.0"
+edition = "2024"
+version = "0.1.0"
 
 [workspace.dependencies]
 clap       = { version = "4.6.7", features = ["derive"] }
 serde      = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
-tempfile   = "3.27"
 toml_edit  = "0.25.19"
 ureq       = "2.12.1"
 

@@ -1,0 +1,33 @@
+concurrency:
+  cancel-in-progress: true
+  group: cargo-flow
+defaults:
+  run:
+    shell: bash --noprofile --norc -euo pipefail {0}
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: bash script/cargo-flow.sh job__check step__fmt
+      - run: bash script/cargo-flow.sh job__check step__clippy
+      - run: bash script/cargo-flow.sh job__check step__build
+      - run: bash script/cargo-flow.sh job__check step__smoke
+    timeout-minutes: 15
+name: cargo-flow
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/cargo-flow.yaml
+      - Cargo.toml
+      - rustfmt.toml
+      - script/cargo-flow.sh
+      - source/cargo-flow/**
+  workflow_dispatch:
+permissions:
+  contents: read

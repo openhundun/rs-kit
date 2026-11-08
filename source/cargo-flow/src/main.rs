@@ -1,63 +1,79 @@
-use std::path::{Path, PathBuf};
-
-use cargo_flow::{ChangeSummary, CratesIoRegistry, Options, process_path};
-use clap::Parser;
-
-#[derive(Parser)]
-#[command(name = "cargo-flow", version, about = "对 Cargo.toml 做结构归一：点键展开（核心，始终执行）+ 可选 features / default-features / 版本号归一")]
+#[derive(clap::Parser)]
+#[command(
+    name = "cargo-flow",
+    version,
+    about = "Normalize Cargo.toml structure: dotted-key expansion (always on) plus optional features / default-features / version normalization"
+)]
 struct Cli {
-    /// Cargo.toml 文件或其所在目录；缺省 ./Cargo.toml，多个按顺序处理。
-    #[arg(value_name = "PATH", default_value = "./Cargo.toml")]
-    path_list: Vec<PathBuf>,
-    /// 为成员侧依赖条目补全 features = []。
-    #[arg(long)]
+    #[arg(
+        value_name = "PATH",
+        default_value = "./Cargo.toml",
+        help = "Cargo.toml file or its directory; defaults to ./Cargo.toml; multiple paths processed in order."
+    )]
+    path_list: Vec<std::path::PathBuf>,
+    #[arg(long, help = "Fill missing features = [] on member dependency entries.")]
     features: bool,
-    /// 按 crates.io 的 default 特性改写 default-features 与 features。
-    #[arg(long)]
+    #[arg(long, help = "Rewrite default-features and features from the crates.io default feature list.")]
     default_features: bool,
-    /// 归一化裸数字版本号为最短 caret 等价形。
-    #[arg(long)]
+    #[arg(long, help = "Normalize bare numeric versions to the shortest caret-equivalent form.")]
     normalize_versions: bool,
 }
 
+struct CratesIoRegistry;
+
+impl cargo_flow::RegistryFetch for CratesIoRegistry {
+    fn version_features_json(&self, name: &str, version: &str) -> Result<Option<String>, cargo_flow::RegistryError> {
+        let url = format!("https://crates.io/api/v1/crates/{name}/{version}");
+        match ureq::get(&url).set("user-agent", "cargo-flow/0.1.0").call() {
+            Ok(response) => response.into_string().map(Some).map_err(|error| cargo_flow::RegistryError { message: error.to_string() }),
+            Err(ureq::Error::Status(404, _)) => Ok(None),
+            Err(error) => Err(cargo_flow::RegistryError { message: error.to_string() }),
+        }
+    }
+}
+
 fn main() {
-    let cli = Cli::parse();
-    let options = Options {
+    let cli = <Cli as clap::Parser>::parse();
+    let options = cargo_flow::Options {
         features: cli.features,
         default_features: cli.default_features,
         normalize_versions: cli.normalize_versions,
     };
     let registry = CratesIoRegistry;
     for raw_path in &cli.path_list {
-        let target_path = resolve_target_path(raw_path);
-        match process_path(&target_path, &options, &registry, &mut |warning| eprintln!("{warning}")) {
-            Ok(summary) => print_change_summary(&summary, &target_path),
+        let target_path = if raw_path.is_dir() { raw_path.join("Cargo.toml") } else { raw_path.to_path_buf() };
+        let original_text = match std::fs::read_to_string(&target_path) {
+            Ok(original_text) => original_text,
+            Err(error) => {
+                eprintln!("cargo-flow: io error on {}: {error}", target_path.display());
+                std::process::exit(1);
+            }
+        };
+        let (rendered_text, summary) = match cargo_flow::Flow::process_text(&original_text, &options, &registry, &mut |warning| eprintln!("{warning}")) {
+            Ok(result) => result,
             Err(error) => {
                 eprintln!("cargo-flow: {error}");
                 std::process::exit(1);
             }
+        };
+        if rendered_text != original_text
+            && let Err(error) = std::fs::write(&target_path, rendered_text)
+        {
+            eprintln!("cargo-flow: io error on {}: {error}", target_path.display());
+            std::process::exit(1);
         }
-    }
-}
-
-/// 文件参数原样使用，目录参数取 `<dir>/Cargo.toml`。
-fn resolve_target_path(raw_path: &Path) -> PathBuf {
-    if raw_path.is_dir() { raw_path.join("Cargo.toml") } else { raw_path.to_path_buf() }
-}
-
-/// 按功能打印计数摘要；无变化的项不打印。
-fn print_change_summary(summary: &ChangeSummary, path: &Path) {
-    let display_path = path.display();
-    if summary.expanded_key_count > 0 {
-        println!("expanded {} dotted keys in {display_path}", summary.expanded_key_count);
-    }
-    if summary.features_filled_count > 0 {
-        println!("filled {} features keys in {display_path}", summary.features_filled_count);
-    }
-    if summary.default_features_applied_count > 0 {
-        println!("applied default-features to {} entries in {display_path}", summary.default_features_applied_count);
-    }
-    if summary.versions_normalized_count > 0 {
-        println!("normalized {} versions in {display_path}", summary.versions_normalized_count);
+        let display_path = target_path.display();
+        if summary.expanded_key_count > 0 {
+            println!("expanded {} dotted keys in {display_path}", summary.expanded_key_count);
+        }
+        if summary.features_filled_count > 0 {
+            println!("filled {} features keys in {display_path}", summary.features_filled_count);
+        }
+        if summary.default_features_applied_count > 0 {
+            println!("applied default-features to {} entries in {display_path}", summary.default_features_applied_count);
+        }
+        if summary.versions_normalized_count > 0 {
+            println!("normalized {} versions in {display_path}", summary.versions_normalized_count);
+        }
     }
 }
